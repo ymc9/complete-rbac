@@ -1,0 +1,171 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+/// Actions that can be performed on a resource
+enum ResourceAction {
+  CREATE
+  READ
+  UPDATE
+  DELETE
+}
+
+/// Base model containing fields shared by all models
+abstract model Base {
+  id          String   @id @default(cuid())
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  createdBy   User     @relation('createdBy', fields: [createdById], references: [id])
+  createdById String   @default(auth().id)
+
+  // cannot create for a different user
+  @@deny('create', createdById != auth().id)
+
+  // cannot update createdBy to a different user
+  @@deny('update', future().createdById != auth().id)
+}
+
+/// User model
+model User {
+  id                   String         @id @default(cuid())
+  createdAt            DateTime       @default(now())
+  updatedAt            DateTime       @updatedAt
+  email                String         @unique @email
+  memberships          Membership[]
+
+  // entities created by the user
+  createdOrganizations Organization[] @relation('createdBy')
+  createdMemberships   Membership[]   @relation('createdBy')
+  createdRoles         Role[]         @relation("createdBy")
+  createdPermissions   Permission[]   @relation("createdBy")
+  createdResources     Resource[]     @relation("createdBy")
+
+  // allow public registration
+  @@allow('create', true)
+
+  // user profiles are visible to users who share an organization
+  @@allow('read', memberships?[organization.memberships?[user == auth()]])
+
+  // users can update their own profiles
+  @@allow('update,delete', this == auth())
+}
+
+/// Organization model
+model Organization extends Base {
+  name        String
+  memberships Membership[]
+  roles       Role[]
+  permissions Permission[]
+  resources   Resource[]
+
+  // allow authenticated users to create organizations
+  @@allow('create', auth() != null)
+
+  // readable to users who are members of the organization
+  @@allow('read', memberships?[user == auth()])
+
+  // allow update by
+  @@allow('update',
+  // 1. organization creator
+    createdBy == auth() ||
+  // 2. organization members with update permission
+    memberships?[
+      user == auth() && 
+      roles?[permissions?[resource == 'Organization' && action == UPDATE]]
+    ]
+  )
+
+  // allow delete by
+  @@allow('delete', 
+  // 1. organization creator
+    createdBy == auth() || 
+  // 2. organization members with delete permission
+    memberships?[
+      user == auth() && 
+      roles?[permissions?[resource == 'Organization' && action == DELETE]]
+  ])
+}
+
+/// Base model for organization constituents: membership, role, and permission
+abstract model OrganizationConstituent extends Base {
+  organization   Organization @relation(fields: [organizationId], references: [id])
+  organizationId String
+
+  // readable if the parent organization is readable
+  @@allow('read', check(organization))
+
+  // create/update/delete is allowed if the parent organization is updatable
+  @@allow('create,update,delete', check(organization, 'update'))
+}
+
+/// Organization membership model
+model Membership extends OrganizationConstituent {
+  user   User   @relation(fields: [userId], references: [id])
+  userId String
+  roles  Role[]
+
+  // a user is not allowed to add himself to an organization
+  @@deny('create', user == auth())
+
+  @@unique([userId, organizationId])
+}
+
+/// Organization role model
+model Role extends OrganizationConstituent {
+  name        String
+  permissions Permission[]
+  memberships Membership[]
+
+  @@unique([name, organizationId])
+}
+
+/// Organization permission model
+model Permission extends OrganizationConstituent {
+  resource String
+  action   ResourceAction
+  roles    Role[]
+}
+
+/// Resource base model
+model Resource extends Base {
+  name           String
+  type           String
+  organization   Organization @relation(fields: [organizationId], references: [id])
+  organizationId String
+
+  @@delegate(type)
+}
+
+/// Post resource model
+model Post extends Resource {
+  title   String
+  content String?
+
+  @@allow('read', organization.memberships?[user == auth() 
+    && roles?[permissions?[resource == 'Post' && action == READ]]])
+  @@allow('create', organization.memberships?[user == auth() 
+    && roles?[permissions?[resource == 'Post' && action == CREATE]]])
+  @@allow('update', organization.memberships?[user == auth() 
+    && roles?[permissions?[resource == 'Post' && action == UPDATE]]])
+  @@allow('delete', organization.memberships?[user == auth() 
+    && roles?[permissions?[resource == 'Post' && action == DELETE]]])
+}
+
+/// Video resource model
+model Video extends Resource {
+  url String
+
+  @@allow('read', organization.memberships?[user == auth() 
+    && roles?[permissions?[resource == 'Video' && action == READ]]])
+  @@allow('create', organization.memberships?[user == auth() 
+    && roles?[permissions?[resource == 'Video' && action == CREATE]]])
+  @@allow('update', organization.memberships?[user == auth() 
+    && roles?[permissions?[resource == 'Video' && action == UPDATE]]])
+  @@allow('delete', organization.memberships?[user == auth() 
+    && roles?[permissions?[resource == 'Video' && action == DELETE]]])
+}
