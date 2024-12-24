@@ -1,18 +1,10 @@
 generator client {
-  provider = "prisma-client-js"
+  provider = 'prisma-client-js'
 }
 
 datasource db {
-  provider = "postgresql"
-  url      = env("DATABASE_URL")
-}
-
-/// Actions that can be performed on a resource
-enum ResourceAction {
-  CREATE
-  READ
-  UPDATE
-  DELETE
+  provider = 'sqlite'
+  url      = 'file:./dev.db'
 }
 
 /// Base model containing fields shared by all models
@@ -41,9 +33,9 @@ model User {
   // entities created by the user
   createdOrganizations Organization[] @relation('createdBy')
   createdMemberships   Membership[]   @relation('createdBy')
-  createdRoles         Role[]         @relation("createdBy")
-  createdPermissions   Permission[]   @relation("createdBy")
-  createdResources     Resource[]     @relation("createdBy")
+  createdRoles         Role[]         @relation('createdBy')
+  createdPermissions   Permission[]   @relation('createdBy')
+  createdResources     Resource[]     @relation('createdBy')
 
   // allow public registration
   @@allow('create', true)
@@ -76,7 +68,7 @@ model Organization extends Base {
   // 2. organization members with update permission
     memberships?[
       user == auth() && 
-      roles?[permissions?[resource == 'Organization' && action == UPDATE]]
+      roles?[permissions?[resource == 'Organization' && action == 'update']]
     ]
   )
 
@@ -87,7 +79,7 @@ model Organization extends Base {
   // 2. organization members with delete permission
     memberships?[
       user == auth() && 
-      roles?[permissions?[resource == 'Organization' && action == DELETE]]
+      roles?[permissions?[resource == 'Organization' && action == 'delete']]
   ])
 }
 
@@ -127,7 +119,7 @@ model Role extends OrganizationConstituent {
 /// Organization permission model
 model Permission extends OrganizationConstituent {
   resource String
-  action   ResourceAction
+  action   String
   roles    Role[]
 }
 
@@ -143,17 +135,23 @@ model Resource extends Base {
 
 /// Post resource model
 model Post extends Resource {
-  title   String
-  content String?
+  title     String
+  content   String?
+  // only member with 'publish' permission can change this field
+  published Boolean @default(false) @allow('update', organization.memberships?[user == auth() 
+    && roles?[permissions?[resource == 'Post' && action == 'publish']]], true)
+
+  // must be created as unpublished
+  @@deny('create', published == true)
 
   @@allow('read', organization.memberships?[user == auth() 
-    && roles?[permissions?[resource == 'Post' && action == READ]]])
+    && roles?[permissions?[resource == 'Post' && action == 'read']]])
   @@allow('create', organization.memberships?[user == auth() 
-    && roles?[permissions?[resource == 'Post' && action == CREATE]]])
+    && roles?[permissions?[resource == 'Post' && action == 'create']]])
   @@allow('update', organization.memberships?[user == auth() 
-    && roles?[permissions?[resource == 'Post' && action == UPDATE]]])
+    && roles?[permissions?[resource == 'Post' && action == 'update']]])
   @@allow('delete', organization.memberships?[user == auth() 
-    && roles?[permissions?[resource == 'Post' && action == DELETE]]])
+    && roles?[permissions?[resource == 'Post' && action == 'delete']]])
 }
 
 /// Video resource model
@@ -161,11 +159,11 @@ model Video extends Resource {
   url String
 
   @@allow('read', organization.memberships?[user == auth() 
-    && roles?[permissions?[resource == 'Video' && action == READ]]])
+    && roles?[permissions?[resource == 'Video' && action == 'read']]])
   @@allow('create', organization.memberships?[user == auth() 
-    && roles?[permissions?[resource == 'Video' && action == CREATE]]])
+    && roles?[permissions?[resource == 'Video' && action == 'create']]])
   @@allow('update', organization.memberships?[user == auth() 
-    && roles?[permissions?[resource == 'Video' && action == UPDATE]]])
+    && roles?[permissions?[resource == 'Video' && action == 'update']]])
   @@allow('delete', organization.memberships?[user == auth() 
-    && roles?[permissions?[resource == 'Video' && action == DELETE]]])
+    && roles?[permissions?[resource == 'Video' && action == 'delete']]])
 }
